@@ -13,14 +13,15 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model payments{
-  id Int @id @default(autoincrement())
-  paymentId String @unique
-  rideId String @unique
+model payments {
+  id        Int            @id @default(autoincrement())
+  paymentId String?        @unique
+  orderId   String?        @unique
+  rideId    String         @unique
   captainId String
-  userId String
-  amount Int
-  status payment_status @default(pending)
+  userId    String
+  amount    Int
+  status    payment_status @default(pending)
 }
 
 enum payment_status {

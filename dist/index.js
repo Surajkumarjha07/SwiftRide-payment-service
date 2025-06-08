@@ -1,5 +1,5 @@
 // src/index.ts
-import express from "express";
+import express2 from "express";
 import dotenv from "dotenv";
 
 // src/kafka/kafkaClient.ts
@@ -24,9 +24,6 @@ async function consumerInit() {
     payment_done_consumer.connect()
   ]);
 }
-
-// src/kafka/handlers/paymentDoneHandler.ts
-import Razorpay from "razorpay";
 
 // src/kafka/producerInIt.ts
 import { Partitioners } from "kafkajs";
@@ -59,51 +56,34 @@ var database_default = prisma;
 import { payment_status } from "@prisma/client";
 async function handlePaymentDone({ message }) {
   try {
-    const { userId, captainId, rideId, fare } = JSON.parse(message.value.toString());
-    const razorpay = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID,
-      key_secret: process.env.RAZORPAY_KEY_SECRET,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Razorpay-Account": process.env.RAZORPAY_MERCHANT_ID
-      }
-    });
-    const payment_id = `${userId}_${Date.now()}`;
-    const platform_charge = fare * 20 / 100;
-    const final_amount = (fare - platform_charge) * 100;
-    razorpay.orders.create({
-      amount: final_amount,
-      currency: "INR",
-      receipt: payment_id,
-      payment_capture: true
-    }, async function(err, order) {
-      if (err && err instanceof Error) {
-        await database_default.payments.create({
-          data: {
-            paymentId: payment_id,
-            rideId,
-            captainId,
-            userId,
-            amount: final_amount,
-            status: payment_status.failed
-          }
-        });
-        throw new Error(`payment failed of ${userId}: ${err.message}`);
-      }
+    const { userId, captainId, rideId, fare, payment_id } = JSON.parse(message.value.toString());
+    const platform_charge = parseInt(fare) * 20 / 100;
+    const final_amount = parseInt(fare) - platform_charge;
+    if (!userId || !captainId || !rideId || !fare || !payment_id) {
       await database_default.payments.create({
         data: {
           paymentId: payment_id,
+          userId,
           rideId,
           captainId,
-          userId,
           amount: final_amount,
-          status: payment_status.success
+          status: payment_status.failed
         }
       });
-      console.log("order: ", JSON.stringify(order));
-      await producerTemplate_default("payment-settled", { order, userId, captainId, rideId, fare });
-      await producerTemplate_default("ride-completed-notify-user", { order, userId, captainId, rideId, fare });
+      throw new Error(`Error in payment service: Required fields are missing!`);
+    }
+    await database_default.payments.create({
+      data: {
+        paymentId: payment_id,
+        userId,
+        rideId,
+        captainId,
+        amount: final_amount,
+        status: payment_status.success
+      }
     });
+    await producerTemplate_default("payment-settled", { userId, captainId, rideId, fare });
+    await producerTemplate_default("ride-completed-notify-user", { userId, captainId, rideId, fare });
   } catch (error) {
     if (error instanceof Error) {
       throw new Error(`Error in payment-requested handler: ${error.message}`);
@@ -163,15 +143,95 @@ var startKafka = async () => {
 };
 var kafka_default = startKafka;
 
+// src/routes/payment.routes.ts
+import express from "express";
+
+// src/services/createOrder.ts
+import Razorpay from "razorpay";
+import { payment_status as payment_status2 } from "@prisma/client";
+async function createOrderHandler(userId, fare, rideId, captainId) {
+  try {
+    const razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Razorpay-Account": process.env.RAZORPAY_MERCHANT_ID
+      }
+    });
+    const platform_charge = fare * 20 / 100;
+    const final_amount = fare - platform_charge;
+    razorpay.orders.create(
+      {
+        amount: final_amount * 100,
+        // converted from paise to rupee
+        currency: "INR",
+        payment_capture: true
+      },
+      async function(err, order) {
+        if (err && err instanceof Error) {
+          throw new Error(`payment failed of ${userId}: ${err.message}`);
+        }
+        await database_default.payments.create({
+          data: {
+            orderId: order.id,
+            userId,
+            rideId,
+            captainId,
+            amount: final_amount,
+            status: payment_status2.pending
+          }
+        });
+        console.log(`order: ${JSON.stringify(order)}`);
+        return order;
+      }
+    );
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`Error in create-order handler: ${error.message}`);
+    }
+  }
+}
+var createOrder_default = createOrderHandler;
+
+// src/controllers/createOrder.ts
+async function createOrder(req, res) {
+  try {
+    const { userId, captainId, rideId, fare } = req.body;
+    const order = await createOrder_default(userId, Number(fare), captainId, rideId);
+    res.status(201).json({
+      message: "order created!",
+      order
+    });
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`Error in create-order controller: ${error.message}`);
+    }
+  }
+}
+var createOrder_default2 = createOrder;
+
+// src/routes/payment.routes.ts
+var router = express.Router();
+router.post("/create-order", createOrder_default2);
+var payment_routes_default = router;
+
 // src/index.ts
+import cors from "cors";
 dotenv.config();
-var app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+var app = express2();
+var corsOptions = {
+  origin: "*",
+  credentials: true
+};
+app.use(cors(corsOptions));
+app.use(express2.json());
+app.use(express2.urlencoded({ extended: true }));
 app.get("/", (req, res) => {
   res.send("payment service is running!");
 });
 kafka_default();
+app.use("/orders", payment_routes_default);
 app.listen(Number(process.env.PORT), "0.0.0.0", () => {
   console.log("payment service is running!");
 });
