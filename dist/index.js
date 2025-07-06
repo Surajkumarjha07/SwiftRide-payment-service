@@ -56,34 +56,32 @@ var database_default = prisma;
 import { payment_status } from "@prisma/client";
 async function handlePaymentDone({ message }) {
   try {
-    const { userId, captainId, rideId, fare, payment_id } = JSON.parse(message.value.toString());
-    const platform_charge = parseInt(fare) * 20 / 100;
-    const final_amount = parseInt(fare) - platform_charge;
-    if (!userId || !captainId || !rideId || !fare || !payment_id) {
-      await database_default.payments.create({
+    console.log(JSON.parse(message.value.toString()));
+    const { fare, payment_id, orderId, order, userId, rideId, captainId } = JSON.parse(message.value.toString());
+    if (!payment_id || !orderId) {
+      await database_default.payments.update({
+        where: {
+          rideId
+        },
         data: {
           paymentId: payment_id,
-          userId,
-          rideId,
-          captainId,
-          amount: final_amount,
           status: payment_status.failed
         }
       });
       throw new Error(`Error in payment service: Required fields are missing!`);
     }
-    await database_default.payments.create({
+    await database_default.payments.update({
+      where: {
+        orderId
+      },
       data: {
         paymentId: payment_id,
-        userId,
-        rideId,
-        captainId,
-        amount: final_amount,
         status: payment_status.success
       }
     });
-    await producerTemplate_default("payment-settled", { userId, captainId, rideId, fare });
-    await producerTemplate_default("ride-completed-notify-user", { userId, captainId, rideId, fare });
+    await producerTemplate_default("payment-settled", { fare, payment_id, orderId, order, userId, rideId, captainId });
+    await producerTemplate_default("ride-completed-notify-user", { fare, payment_id, orderId, order, userId, rideId, captainId });
+    await producerTemplate_default("captain-payment", { fare, payment_id, orderId, order, userId, rideId, captainId });
   } catch (error) {
     if (error instanceof Error) {
       throw new Error(`Error in payment-requested handler: ${error.message}`);
@@ -159,33 +157,40 @@ async function createOrderHandler(userId, fare, rideId, captainId) {
         "X-Razorpay-Account": process.env.RAZORPAY_MERCHANT_ID
       }
     });
-    const platform_charge = fare * 20 / 100;
-    const final_amount = fare - platform_charge;
-    razorpay.orders.create(
-      {
-        amount: final_amount * 100,
-        // converted from paise to rupee
+    const platform_commission = Math.round(fare * 20 / 100);
+    const captain_commission = Math.round(fare - platform_commission);
+    if (isNaN(captain_commission) || captain_commission < 0) {
+      console.log("final amount is not valid!", captain_commission);
+    }
+    const razorpay_order = await new Promise((resolve, reject) => {
+      razorpay.orders.create({
+        amount: fare * 100,
         currency: "INR",
         payment_capture: true
-      },
-      async function(err, order) {
-        if (err && err instanceof Error) {
-          throw new Error(`payment failed of ${userId}: ${err.message}`);
-        }
-        await database_default.payments.create({
-          data: {
-            orderId: order.id,
-            userId,
-            rideId,
-            captainId,
-            amount: final_amount,
-            status: payment_status2.pending
-          }
-        });
-        console.log(`order: ${JSON.stringify(order)}`);
-        return order;
+      }, (err, order2) => {
+        console.log("Razorpay callback:", { err, order: order2 });
+        if (err) return reject(err);
+        resolve(order2);
+      });
+    });
+    console.log(razorpay_order);
+    if (!razorpay_order) {
+      throw new Error(`Error in creating order!`);
+    }
+    const order = await database_default.payments.create({
+      data: {
+        orderId: razorpay_order.id,
+        userId,
+        rideId,
+        captainId,
+        total_amount: fare,
+        captain_commission,
+        platform_commission,
+        status: payment_status2.pending
       }
-    );
+    });
+    console.log(`razorpay_order: ${JSON.stringify(razorpay_order)}`);
+    return { razorpay_order, order };
   } catch (error) {
     if (error instanceof Error) {
       throw new Error(`Error in create-order handler: ${error.message}`);
@@ -198,9 +203,16 @@ var createOrder_default = createOrderHandler;
 async function createOrder(req, res) {
   try {
     const { userId, captainId, rideId, fare } = req.body;
-    const order = await createOrder_default(userId, Number(fare), captainId, rideId);
+    const createdOrder = await createOrder_default(userId, Number(fare), rideId, captainId);
+    if (!createdOrder) {
+      return res.status(400).json({
+        message: "no order created!"
+      });
+    }
+    const { razorpay_order, order } = createdOrder;
     res.status(201).json({
       message: "order created!",
+      razorpay_order,
       order
     });
   } catch (error) {

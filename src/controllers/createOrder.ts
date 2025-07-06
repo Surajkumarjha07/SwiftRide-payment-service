@@ -5,10 +5,19 @@ async function createOrder(req: Request, res: Response) {
     try {
         const { userId, captainId, rideId, fare } = req.body;
 
-        const order = await createOrderHandler(userId, Number(fare), captainId, rideId);
+        const createdOrder = await createOrderHandler(userId, Number(fare), rideId, captainId);
+
+        if (!createdOrder) {
+            return res.status(400).json({
+                message: "no order created!"
+            })
+        }
+
+        const { razorpay_order, order } = createdOrder;
 
         res.status(201).json({
             message: "order created!",
+            razorpay_order,
             order
         })
 

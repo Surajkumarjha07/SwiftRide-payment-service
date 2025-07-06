@@ -13,33 +13,47 @@ async function createOrderHandler(userId: string, fare: number, rideId: string, 
             }
         });
 
-        const platform_charge: number = (fare * 20) / 100
-        const final_amount: number = (fare - platform_charge);
+        const platform_commission: number = Math.round((fare * 20) / 100);
+        const captain_commission: number = Math.round((fare - platform_commission));
 
-        razorpay.orders.create({
-            amount: final_amount * 100, // converted from paise to rupee
-            currency: "INR",
-            payment_capture: true
-        }, async function (err, order) {
-            if (err && err instanceof Error) {
-                throw new Error(`payment failed of ${userId}: ${err.message}`);
-            }
-
-            await prisma.payments.create({
-                data: {
-                    orderId: order.id,
-                    userId: userId,
-                    rideId: rideId,
-                    captainId: captainId,
-                    amount: final_amount,
-                    status: payment_status.pending
-                }
-            })
-
-            console.log(`order: ${JSON.stringify(order)}`);
-            return order;
+        if (isNaN(captain_commission) || captain_commission < 0) {
+            console.log("final amount is not valid!", captain_commission);
         }
-        )
+
+        const razorpay_order = await new Promise<any>((resolve, reject) => {
+            razorpay.orders.create({
+                amount: fare * 100,
+                currency: "INR",
+                payment_capture: true
+            }, (err, order) => {
+                console.log("Razorpay callback:", { err, order });
+                if (err) return reject(err);
+                resolve(order);
+            });
+        });
+
+        console.log(razorpay_order);
+
+        if (!razorpay_order) {
+            throw new Error(`Error in creating order!`);
+        }
+
+        const order = await prisma.payments.create({
+            data: {
+                orderId: razorpay_order.id,
+                userId: userId,
+                rideId: rideId,
+                captainId: captainId,
+                total_amount: fare,
+                captain_commission: captain_commission,
+                platform_commission: platform_commission,
+                status: payment_status.pending
+            }
+        })
+
+        console.log(`razorpay_order: ${JSON.stringify(razorpay_order)}`);
+        return { razorpay_order, order };
+
 
     } catch (error) {
         if (error instanceof Error) {
