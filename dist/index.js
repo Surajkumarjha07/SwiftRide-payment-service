@@ -81,7 +81,7 @@ async function handlePaymentDone({ message }) {
     });
     await producerTemplate_default("payment-settled", { fare, payment_id, orderId, order, userId, rideId, captainId });
     await producerTemplate_default("ride-completed-notify-user", { fare, payment_id, orderId, order, userId, rideId, captainId });
-    await producerTemplate_default("captain-payment", { fare, payment_id, orderId, order, userId, rideId, captainId });
+    await producerTemplate_default("update-captain-earnings", { fare, payment_id, orderId, order, userId, rideId, captainId });
   } catch (error) {
     if (error instanceof Error) {
       throw new Error(`Error in payment-requested handler: ${error.message}`);
@@ -203,6 +203,13 @@ var createOrder_default = createOrderHandler;
 async function createOrder(req, res) {
   try {
     const { userId, captainId, rideId, fare } = req.body;
+    if (!userId || !captainId || !rideId || !fare) {
+      console.log("credentials missing! ", captainId, rideId, userId, fare);
+      return res.status(400).json({
+        message: "credentials missing!",
+        captainId
+      });
+    }
     const createdOrder = await createOrder_default(userId, Number(fare), rideId, captainId);
     if (!createdOrder) {
       return res.status(400).json({

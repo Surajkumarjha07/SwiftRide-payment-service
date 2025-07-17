@@ -35,7 +35,7 @@ async function handlePaymentDone({ message }: EachMessagePayload) {
 
         await sendProducerMessage("payment-settled", { fare, payment_id, orderId, order, userId, rideId, captainId }); // will be listened by ride service
         await sendProducerMessage("ride-completed-notify-user", { fare, payment_id, orderId, order, userId, rideId, captainId })  // will be listened by user service
-        await sendProducerMessage("captain-payment", { fare, payment_id, orderId, order, userId, rideId, captainId });
+        await sendProducerMessage("update-captain-earnings", { fare, payment_id, orderId, order, userId, rideId, captainId });
 
     } catch (error) {
         if (error instanceof Error) {

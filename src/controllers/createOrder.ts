@@ -1,9 +1,18 @@
 import { Request, Response } from "express";
 import createOrderHandler from "../services/createOrder.js";
 
-async function createOrder(req: Request, res: Response) {
+async function createOrder(req: Request, res: Response): Promise<any> {
     try {
         const { userId, captainId, rideId, fare } = req.body;
+
+        if (!userId || !captainId || !rideId || !fare) {
+            console.log("credentials missing! ", captainId, rideId, userId, fare);
+            
+            return res.status(400).json({
+                message: "credentials missing!",
+                captainId
+            })
+        }
 
         const createdOrder = await createOrderHandler(userId, Number(fare), rideId, captainId);
 
