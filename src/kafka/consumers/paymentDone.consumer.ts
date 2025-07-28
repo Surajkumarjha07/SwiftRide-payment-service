@@ -1,5 +1,5 @@
 import { payment_done_consumer } from "../consumerInIt.js";
-import handlePaymentDone from "../handlers/paymentDoneHandler.js";
+import handlePaymentDone from "../handlers/paymentDone.handler.js";
 
 async function paymentDone() {
     try {

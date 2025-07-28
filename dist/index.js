@@ -52,7 +52,7 @@ import { PrismaClient } from "@prisma/client";
 var prisma = new PrismaClient();
 var database_default = prisma;
 
-// src/kafka/handlers/paymentDoneHandler.ts
+// src/kafka/handlers/paymentDone.handler.ts
 import { payment_status } from "@prisma/client";
 async function handlePaymentDone({ message }) {
   try {
@@ -68,7 +68,7 @@ async function handlePaymentDone({ message }) {
           status: payment_status.failed
         }
       });
-      throw new Error(`Error in payment service: Required fields are missing!`);
+      throw new Error(`Error in payment service: Payment ID and Order ID are missing!`);
     }
     await database_default.payments.update({
       where: {
@@ -88,14 +88,14 @@ async function handlePaymentDone({ message }) {
     }
   }
 }
-var paymentDoneHandler_default = handlePaymentDone;
+var paymentDone_handler_default = handlePaymentDone;
 
-// src/kafka/consumers/paymentDoneConsumer.ts
+// src/kafka/consumers/paymentDone.consumer.ts
 async function paymentDone() {
   try {
     await payment_done_consumer.subscribe({ topic: "payment-done", fromBeginning: true });
     await payment_done_consumer.run({
-      eachMessage: paymentDoneHandler_default
+      eachMessage: paymentDone_handler_default
     });
   } catch (error) {
     if (error instanceof Error) {
@@ -103,7 +103,7 @@ async function paymentDone() {
     }
   }
 }
-var paymentDoneConsumer_default = paymentDone;
+var paymentDone_consumer_default = paymentDone;
 
 // src/kafka/kafkaAdmin.ts
 async function kafkaInit() {
@@ -111,7 +111,7 @@ async function kafkaInit() {
   console.log("Admin connecting...");
   await admin.connect();
   console.log("Admin connected...");
-  const topics = ["payment-requested"];
+  const topics = ["payment-done"];
   const existingTopics = await admin.listTopics();
   const topicsToCreate = topics.filter((t) => !existingTopics.includes(t));
   if (topicsToCreate.length > 0) {
@@ -124,7 +124,7 @@ async function kafkaInit() {
 }
 var kafkaAdmin_default = kafkaInit;
 
-// src/kafka/index.ts
+// src/kafka/index.kafka.ts
 var startKafka = async () => {
   try {
     await kafkaAdmin_default();
@@ -134,17 +134,17 @@ var startKafka = async () => {
     console.log("Producer initialization...");
     await producerInit();
     console.log("Producer initializated");
-    await paymentDoneConsumer_default();
+    await paymentDone_consumer_default();
   } catch (error) {
     console.log("error in initializing kafka: ", error);
   }
 };
-var kafka_default = startKafka;
+var index_kafka_default = startKafka;
 
-// src/routes/payment.routes.ts
+// src/routes/payment.route.ts
 import express from "express";
 
-// src/services/createOrder.ts
+// src/services/createOrder.service.ts
 import Razorpay from "razorpay";
 import { payment_status as payment_status2 } from "@prisma/client";
 async function createOrderHandler(userId, fare, rideId, captainId) {
@@ -197,12 +197,13 @@ async function createOrderHandler(userId, fare, rideId, captainId) {
     }
   }
 }
-var createOrder_default = createOrderHandler;
+var createOrder_service_default = createOrderHandler;
 
-// src/controllers/createOrder.ts
+// src/controllers/createOrder.controller.ts
 async function createOrder(req, res) {
   try {
-    const { userId, captainId, rideId, fare } = req.body;
+    const { userId } = req.user;
+    const { captainId, rideId, fare } = req.body;
     if (!userId || !captainId || !rideId || !fare) {
       console.log("credentials missing! ", captainId, rideId, userId, fare);
       return res.status(400).json({
@@ -210,7 +211,7 @@ async function createOrder(req, res) {
         captainId
       });
     }
-    const createdOrder = await createOrder_default(userId, Number(fare), rideId, captainId);
+    const createdOrder = await createOrder_service_default(userId, Number(fare), rideId, captainId);
     if (!createdOrder) {
       return res.status(400).json({
         message: "no order created!"
@@ -228,19 +229,38 @@ async function createOrder(req, res) {
     }
   }
 }
-var createOrder_default2 = createOrder;
+var createOrder_controller_default = createOrder;
 
-// src/routes/payment.routes.ts
+// src/routes/payment.route.ts
 var router = express.Router();
-router.post("/create-order", createOrder_default2);
-var payment_routes_default = router;
+router.post("/create-order", createOrder_controller_default);
+var payment_route_default = router;
 
 // src/index.ts
 import cors from "cors";
+
+// src/middlewares/extractUserHeader.middleware.ts
+async function extractUserHeader(req, res, next) {
+  try {
+    const userHeader = req.headers["x-user-payload"];
+    if (userHeader && typeof userHeader === "string") {
+      req.user = JSON.parse(userHeader);
+      return next();
+    }
+    return res.status(400).json({
+      message: "Invalid or Missing 'x-user-payload'"
+    });
+  } catch (error) {
+    return res.status(403).json({ message: "User payload malfunctioned or corrupt!" });
+  }
+}
+var extractUserHeader_middleware_default = extractUserHeader;
+
+// src/index.ts
 dotenv.config();
 var app = express2();
 var corsOptions = {
-  origin: "*",
+  origin: "http://localhost:3000",
   credentials: true
 };
 app.use(cors(corsOptions));
@@ -249,8 +269,8 @@ app.use(express2.urlencoded({ extended: true }));
 app.get("/", (req, res) => {
   res.send("payment service is running!");
 });
-kafka_default();
-app.use("/orders", payment_routes_default);
+index_kafka_default();
+app.use("/orders", extractUserHeader_middleware_default, payment_route_default);
 app.listen(Number(process.env.PORT), "0.0.0.0", () => {
   console.log("payment service is running!");
 });

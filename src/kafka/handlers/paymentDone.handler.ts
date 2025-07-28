@@ -18,8 +18,9 @@ async function handlePaymentDone({ message }: EachMessagePayload) {
                     paymentId: payment_id,
                     status: payment_status.failed
                 }
-            })
-            throw new Error(`Error in payment service: Required fields are missing!`);
+            });
+
+            throw new Error(`Error in payment service: Payment ID and Order ID are missing!`);
         }
 
         await prisma.payments.update({
@@ -33,8 +34,13 @@ async function handlePaymentDone({ message }: EachMessagePayload) {
             }
         })
 
-        await sendProducerMessage("payment-settled", { fare, payment_id, orderId, order, userId, rideId, captainId }); // will be listened by ride service
-        await sendProducerMessage("ride-completed-notify-user", { fare, payment_id, orderId, order, userId, rideId, captainId })  // will be listened by user service
+        // will be consumed by ride service
+        await sendProducerMessage("payment-settled", { fare, payment_id, orderId, order, userId, rideId, captainId });
+
+        // will be consumed by user service
+        await sendProducerMessage("ride-completed-notify-user", { fare, payment_id, orderId, order, userId, rideId, captainId })
+
+        // will be consumed by captain-service
         await sendProducerMessage("update-captain-earnings", { fare, payment_id, orderId, order, userId, rideId, captainId });
 
     } catch (error) {
