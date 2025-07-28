@@ -12,7 +12,6 @@
   "author": "",
   "license": "ISC",
   "type": "module",
-  "description": "",
   "dependencies": {
     "@prisma/client": "^6.9.0",
     "cors": "^2.8.5",
@@ -32,5 +31,14 @@
     "prisma": "^6.9.0",
     "tsup": "^8.5.0",
     "typescript": "^5.8.3"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Surajkumarjha07/SwiftRide-payment-service.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Surajkumarjha07/SwiftRide-payment-service/issues"
+  },
+  "homepage": "https://github.com/Surajkumarjha07/SwiftRide-payment-service#readme",
+  "description": ""
 }

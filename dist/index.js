@@ -52,52 +52,50 @@ import { PrismaClient } from "@prisma/client";
 var prisma = new PrismaClient();
 var database_default = prisma;
 
-// src/kafka/handlers/paymentDoneHandler.ts
+// src/kafka/handlers/paymentDone.handler.ts
 import { payment_status } from "@prisma/client";
 async function handlePaymentDone({ message }) {
   try {
-    const { userId, captainId, rideId, fare, payment_id } = JSON.parse(message.value.toString());
-    const platform_charge = parseInt(fare) * 20 / 100;
-    const final_amount = parseInt(fare) - platform_charge;
-    if (!userId || !captainId || !rideId || !fare || !payment_id) {
-      await database_default.payments.create({
+    console.log(JSON.parse(message.value.toString()));
+    const { fare, payment_id, orderId, order, userId, rideId, captainId } = JSON.parse(message.value.toString());
+    if (!payment_id || !orderId) {
+      await database_default.payments.update({
+        where: {
+          rideId
+        },
         data: {
           paymentId: payment_id,
-          userId,
-          rideId,
-          captainId,
-          amount: final_amount,
           status: payment_status.failed
         }
       });
-      throw new Error(`Error in payment service: Required fields are missing!`);
+      throw new Error(`Error in payment service: Payment ID and Order ID are missing!`);
     }
-    await database_default.payments.create({
+    await database_default.payments.update({
+      where: {
+        orderId
+      },
       data: {
         paymentId: payment_id,
-        userId,
-        rideId,
-        captainId,
-        amount: final_amount,
         status: payment_status.success
       }
     });
-    await producerTemplate_default("payment-settled", { userId, captainId, rideId, fare });
-    await producerTemplate_default("ride-completed-notify-user", { userId, captainId, rideId, fare });
+    await producerTemplate_default("payment-settled", { fare, payment_id, orderId, order, userId, rideId, captainId });
+    await producerTemplate_default("ride-completed-notify-user", { fare, payment_id, orderId, order, userId, rideId, captainId });
+    await producerTemplate_default("update-captain-earnings", { fare, payment_id, orderId, order, userId, rideId, captainId });
   } catch (error) {
     if (error instanceof Error) {
       throw new Error(`Error in payment-requested handler: ${error.message}`);
     }
   }
 }
-var paymentDoneHandler_default = handlePaymentDone;
+var paymentDone_handler_default = handlePaymentDone;
 
-// src/kafka/consumers/paymentDoneConsumer.ts
+// src/kafka/consumers/paymentDone.consumer.ts
 async function paymentDone() {
   try {
     await payment_done_consumer.subscribe({ topic: "payment-done", fromBeginning: true });
     await payment_done_consumer.run({
-      eachMessage: paymentDoneHandler_default
+      eachMessage: paymentDone_handler_default
     });
   } catch (error) {
     if (error instanceof Error) {
@@ -105,7 +103,7 @@ async function paymentDone() {
     }
   }
 }
-var paymentDoneConsumer_default = paymentDone;
+var paymentDone_consumer_default = paymentDone;
 
 // src/kafka/kafkaAdmin.ts
 async function kafkaInit() {
@@ -113,7 +111,7 @@ async function kafkaInit() {
   console.log("Admin connecting...");
   await admin.connect();
   console.log("Admin connected...");
-  const topics = ["payment-requested"];
+  const topics = ["payment-done"];
   const existingTopics = await admin.listTopics();
   const topicsToCreate = topics.filter((t) => !existingTopics.includes(t));
   if (topicsToCreate.length > 0) {
@@ -126,7 +124,7 @@ async function kafkaInit() {
 }
 var kafkaAdmin_default = kafkaInit;
 
-// src/kafka/index.ts
+// src/kafka/index.kafka.ts
 var startKafka = async () => {
   try {
     await kafkaAdmin_default();
@@ -136,17 +134,17 @@ var startKafka = async () => {
     console.log("Producer initialization...");
     await producerInit();
     console.log("Producer initializated");
-    await paymentDoneConsumer_default();
+    await paymentDone_consumer_default();
   } catch (error) {
     console.log("error in initializing kafka: ", error);
   }
 };
-var kafka_default = startKafka;
+var index_kafka_default = startKafka;
 
-// src/routes/payment.routes.ts
+// src/routes/payment.route.ts
 import express from "express";
 
-// src/services/createOrder.ts
+// src/services/createOrder.service.ts
 import Razorpay from "razorpay";
 import { payment_status as payment_status2 } from "@prisma/client";
 async function createOrderHandler(userId, fare, rideId, captainId) {
@@ -159,48 +157,70 @@ async function createOrderHandler(userId, fare, rideId, captainId) {
         "X-Razorpay-Account": process.env.RAZORPAY_MERCHANT_ID
       }
     });
-    const platform_charge = fare * 20 / 100;
-    const final_amount = fare - platform_charge;
-    razorpay.orders.create(
-      {
-        amount: final_amount * 100,
-        // converted from paise to rupee
+    const platform_commission = Math.round(fare * 20 / 100);
+    const captain_commission = Math.round(fare - platform_commission);
+    if (isNaN(captain_commission) || captain_commission < 0) {
+      console.log("final amount is not valid!", captain_commission);
+    }
+    const razorpay_order = await new Promise((resolve, reject) => {
+      razorpay.orders.create({
+        amount: fare * 100,
         currency: "INR",
         payment_capture: true
-      },
-      async function(err, order) {
-        if (err && err instanceof Error) {
-          throw new Error(`payment failed of ${userId}: ${err.message}`);
-        }
-        await database_default.payments.create({
-          data: {
-            orderId: order.id,
-            userId,
-            rideId,
-            captainId,
-            amount: final_amount,
-            status: payment_status2.pending
-          }
-        });
-        console.log(`order: ${JSON.stringify(order)}`);
-        return order;
+      }, (err, order2) => {
+        console.log("Razorpay callback:", { err, order: order2 });
+        if (err) return reject(err);
+        resolve(order2);
+      });
+    });
+    console.log(razorpay_order);
+    if (!razorpay_order) {
+      throw new Error(`Error in creating order!`);
+    }
+    const order = await database_default.payments.create({
+      data: {
+        orderId: razorpay_order.id,
+        userId,
+        rideId,
+        captainId,
+        total_amount: fare,
+        captain_commission,
+        platform_commission,
+        status: payment_status2.pending
       }
-    );
+    });
+    console.log(`razorpay_order: ${JSON.stringify(razorpay_order)}`);
+    return { razorpay_order, order };
   } catch (error) {
     if (error instanceof Error) {
       throw new Error(`Error in create-order handler: ${error.message}`);
     }
   }
 }
-var createOrder_default = createOrderHandler;
+var createOrder_service_default = createOrderHandler;
 
-// src/controllers/createOrder.ts
+// src/controllers/createOrder.controller.ts
 async function createOrder(req, res) {
   try {
-    const { userId, captainId, rideId, fare } = req.body;
-    const order = await createOrder_default(userId, Number(fare), captainId, rideId);
+    const { userId } = req.user;
+    const { captainId, rideId, fare } = req.body;
+    if (!userId || !captainId || !rideId || !fare) {
+      console.log("credentials missing! ", captainId, rideId, userId, fare);
+      return res.status(400).json({
+        message: "credentials missing!",
+        captainId
+      });
+    }
+    const createdOrder = await createOrder_service_default(userId, Number(fare), rideId, captainId);
+    if (!createdOrder) {
+      return res.status(400).json({
+        message: "no order created!"
+      });
+    }
+    const { razorpay_order, order } = createdOrder;
     res.status(201).json({
       message: "order created!",
+      razorpay_order,
       order
     });
   } catch (error) {
@@ -209,19 +229,38 @@ async function createOrder(req, res) {
     }
   }
 }
-var createOrder_default2 = createOrder;
+var createOrder_controller_default = createOrder;
 
-// src/routes/payment.routes.ts
+// src/routes/payment.route.ts
 var router = express.Router();
-router.post("/create-order", createOrder_default2);
-var payment_routes_default = router;
+router.post("/create-order", createOrder_controller_default);
+var payment_route_default = router;
 
 // src/index.ts
 import cors from "cors";
+
+// src/middlewares/extractUserHeader.middleware.ts
+async function extractUserHeader(req, res, next) {
+  try {
+    const userHeader = req.headers["x-user-payload"];
+    if (userHeader && typeof userHeader === "string") {
+      req.user = JSON.parse(userHeader);
+      return next();
+    }
+    return res.status(400).json({
+      message: "Invalid or Missing 'x-user-payload'"
+    });
+  } catch (error) {
+    return res.status(403).json({ message: "User payload malfunctioned or corrupt!" });
+  }
+}
+var extractUserHeader_middleware_default = extractUserHeader;
+
+// src/index.ts
 dotenv.config();
 var app = express2();
 var corsOptions = {
-  origin: "*",
+  origin: "http://localhost:3000",
   credentials: true
 };
 app.use(cors(corsOptions));
@@ -230,8 +269,8 @@ app.use(express2.urlencoded({ extended: true }));
 app.get("/", (req, res) => {
   res.send("payment service is running!");
 });
-kafka_default();
-app.use("/orders", payment_routes_default);
+index_kafka_default();
+app.use("/orders", extractUserHeader_middleware_default, payment_route_default);
 app.listen(Number(process.env.PORT), "0.0.0.0", () => {
   console.log("payment service is running!");
 });

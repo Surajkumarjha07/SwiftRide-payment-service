@@ -1,5 +1,5 @@
 import { consumerInit } from "./consumerInIt.js";
-import paymentDone from "./consumers/paymentDoneConsumer.js";
+import paymentDone from "./consumers/paymentDone.consumer.js";
 import kafkaInit from "./kafkaAdmin.js";
 import { producerInit } from "./producerInIt.js";
 

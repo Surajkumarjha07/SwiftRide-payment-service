@@ -14,14 +14,16 @@ datasource db {
 }
 
 model payments {
-  id        Int            @id @default(autoincrement())
-  paymentId String?        @unique
-  orderId   String?        @unique
-  rideId    String         @unique
-  captainId String
-  userId    String
-  amount    Int
-  status    payment_status @default(pending)
+  id                  Int            @id @default(autoincrement())
+  paymentId           String?        @unique
+  orderId             String?        @unique
+  rideId              String         @unique
+  captainId           String
+  userId              String
+  total_amount        Int
+  captain_commission  Int
+  platform_commission Int
+  status              payment_status @default(pending)
 }
 
 enum payment_status {
