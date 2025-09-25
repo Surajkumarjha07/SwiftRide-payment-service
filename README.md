@@ -9,7 +9,6 @@ The Payment Service is an internal backend service of SwiftRide (Ride-Sharing pl
 ✅ Initiate and create Razorpay's payment order   
 ✅ Saves payment details to database  
 ✅ Track payment status - `pending`, `success`, `failure`  
-✅ Integrated with Rate-Limiter (Token Bucket Algorithm) to prevent the server from being exploited by a single user or captain  
 
 -----------------------------------------------------------------------------------------------------------------------------------------------
 
