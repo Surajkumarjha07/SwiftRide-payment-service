@@ -60,11 +60,11 @@ npm install
 
 Create a .env file and configure the following variables ->  
 
-DATABASE_URL=your-database-url
-PORT=your-port
-RAZORPAY_KEY_ID=your-razorpay-key-id
-RAZORPAY_KEY_SECRET=your-razorpay-key-secret
-RAZORPAY_MERCHANT_ID=your-razorpay-merchant-id
+DATABASE_URL=your-database-url  
+PORT=your-port  
+RAZORPAY_KEY_ID=your-razorpay-key-id  
+RAZORPAY_KEY_SECRET=your-razorpay-key-secret  
+RAZORPAY_MERCHANT_ID=your-razorpay-merchant-id  
 
 4️⃣ Run the Application
 
