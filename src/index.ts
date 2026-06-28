@@ -24,7 +24,7 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 // kafka setup
-startKafka();
+await startKafka();
 
 app.use("/orders", extractUserHeader, paymentRoutes);
 
