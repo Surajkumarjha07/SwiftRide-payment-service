@@ -28,6 +28,6 @@ await startKafka();
 
 app.use("/orders", extractUserHeader, paymentRoutes);
 
-app.listen(Number(process.env.PORT), "0.0.0.0", () => {
+app.listen(Number(process.env.PAYMENT_SERVICE_PORT), "0.0.0.0", () => {
     console.log("payment service is running!");
 })
